@@ -5,6 +5,7 @@ import { toMySQL } from "./mysql";
 import { toOracleSQL } from "./oraclesql";
 import { toPostgres } from "./postgres";
 import { toSqlite } from "./sqlite";
+import { jsonToMySQL } from "./generic";
 
 export function exportSQL(diagram) {
   switch (diagram.database) {
@@ -20,7 +21,8 @@ export function exportSQL(diagram) {
       return toMSSQL(diagram);
     case DB.ORACLESQL:
       return toOracleSQL(diagram);
+    case DB.GENERIC:
     default:
-      return "";
+      return jsonToMySQL(diagram);
   }
 }

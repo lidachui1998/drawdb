@@ -4,7 +4,6 @@ import Canvas from "./EditorCanvas/Canvas";
 import { CanvasContextProvider } from "../context/CanvasContext";
 import SidePanel from "./EditorSidePanel/SidePanel";
 import { DB, State } from "../data/constants";
-import { db } from "../data/db";
 import {
   useLayout,
   useSettings,
@@ -24,16 +23,14 @@ import { useTranslation } from "react-i18next";
 import { databases } from "../data/databases";
 import { isRtl } from "../i18n/utils/rtl";
 import { useSearchParams } from "react-router-dom";
-import { get } from "../api/gists";
+import { getDiagram, createDiagram, updateDiagram } from "../api/diagrams";
 
-export const IdContext = createContext({ gistId: "", setGistId: () => {} });
+export const IdContext = createContext({ diagramId: null, setDiagramId: () => {} });
 
 const SIDEPANEL_MIN_WIDTH = 384;
 
 export default function WorkSpace() {
-  const [id, setId] = useState(0);
-  const [gistId, setGistId] = useState("");
-  const [loadedFromGistId, setLoadedFromGistId] = useState("");
+  const [diagramId, setDiagramId] = useState(null);
   const [title, setTitle] = useState("Untitled Diagram");
   const [resize, setResize] = useState(false);
   const [width, setWidth] = useState(SIDEPANEL_MIN_WIDTH);
@@ -60,6 +57,7 @@ export default function WorkSpace() {
   const { undoStack, redoStack, setUndoStack, setRedoStack } = useUndoRedo();
   const { t, i18n } = useTranslation();
   let [searchParams, setSearchParams] = useSearchParams();
+
   const handleResize = (e) => {
     if (!resize) return;
     const w = isRtl(i18n.language) ? window.innerWidth - e.clientX : e.clientX;
@@ -69,303 +67,104 @@ export default function WorkSpace() {
   const save = useCallback(async () => {
     if (saveState !== State.SAVING) return;
 
-    const name = window.name.split(" ");
-    const op = name[0];
-    const saveAsDiagram = window.name === "" || op === "d" || op === "lt";
+    const diagramData = {
+      name: title,
+      content: {
+        tables,
+        relationships,
+        notes,
+        areas,
+        tasks,
+        pan: transform.pan,
+        zoom: transform.zoom,
+        enums,
+        types,
+      },
+      database,
+    };
 
-    if (saveAsDiagram) {
-      searchParams.delete("shareId");
-      setSearchParams(searchParams);
-      if ((id === 0 && window.name === "") || op === "lt") {
-        await db.diagrams
-          .add({
-            database: database,
-            name: title,
-            gistId: gistId ?? "",
-            lastModified: new Date(),
-            tables: tables,
-            references: relationships,
-            notes: notes,
-            areas: areas,
-            todos: tasks,
-            pan: transform.pan,
-            zoom: transform.zoom,
-            loadedFromGistId: loadedFromGistId,
-            ...(databases[database].hasEnums && { enums: enums }),
-            ...(databases[database].hasTypes && { types: types }),
-          })
-          .then((id) => {
-            setId(id);
-            window.name = `d ${id}`;
-            setSaveState(State.SAVED);
-            setLastSaved(new Date().toLocaleString());
-          });
+    try {
+      if (diagramId) {
+        await updateDiagram(diagramId, diagramData);
       } else {
-        await db.diagrams
-          .update(id, {
-            database: database,
-            name: title,
-            lastModified: new Date(),
-            tables: tables,
-            references: relationships,
-            notes: notes,
-            areas: areas,
-            todos: tasks,
-            gistId: gistId ?? "",
-            pan: transform.pan,
-            zoom: transform.zoom,
-            loadedFromGistId: loadedFromGistId,
-            ...(databases[database].hasEnums && { enums: enums }),
-            ...(databases[database].hasTypes && { types: types }),
-          })
-          .then(() => {
-            setSaveState(State.SAVED);
-            setLastSaved(new Date().toLocaleString());
-          });
+        const newDiagram = await createDiagram(diagramData);
+        setDiagramId(newDiagram.id);
+        setSearchParams({ id: newDiagram.id });
       }
-    } else {
-      await db.templates
-        .update(id, {
-          database: database,
-          title: title,
-          tables: tables,
-          relationships: relationships,
-          notes: notes,
-          subjectAreas: areas,
-          todos: tasks,
-          pan: transform.pan,
-          zoom: transform.zoom,
-          ...(databases[database].hasEnums && { enums: enums }),
-          ...(databases[database].hasTypes && { types: types }),
-        })
-        .then(() => {
-          setSaveState(State.SAVED);
-          setLastSaved(new Date().toLocaleString());
-        })
-        .catch(() => {
-          setSaveState(State.ERROR);
-        });
+      setSaveState(State.SAVED);
+      setLastSaved(new Date().toLocaleString());
+    } catch (error) {
+      console.error("Failed to save diagram:", error);
+      setSaveState(State.ERROR);
     }
   }, [
-    searchParams,
-    setSearchParams,
+    saveState,
+    title,
     tables,
     relationships,
     notes,
     areas,
-    types,
-    title,
-    id,
     tasks,
     transform,
-    setSaveState,
     database,
     enums,
-    gistId,
-    loadedFromGistId,
-    saveState,
+    types,
+    diagramId,
+    setSaveState,
+    setSearchParams,
   ]);
 
   const load = useCallback(async () => {
-    const loadLatestDiagram = async () => {
-      await db.diagrams
-        .orderBy("lastModified")
-        .last()
-        .then((d) => {
-          if (d) {
-            if (d.database) {
-              setDatabase(d.database);
-            } else {
-              setDatabase(DB.GENERIC);
-            }
-            setId(d.id);
-            setGistId(d.gistId);
-            setLoadedFromGistId(d.loadedFromGistId);
-            setTitle(d.name);
-            setTables(d.tables);
-            setRelationships(d.references);
-            setNotes(d.notes);
-            setAreas(d.areas);
-            setTasks(d.todos ?? []);
-            setTransform({ pan: d.pan, zoom: d.zoom });
-            if (databases[database].hasTypes) {
-              setTypes(d.types ?? []);
-            }
-            if (databases[database].hasEnums) {
-              setEnums(d.enums ?? []);
-            }
-            window.name = `d ${d.id}`;
-          } else {
-            window.name = "";
-            if (selectedDb === "") setShowSelectDbModal(true);
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-        });
-    };
-
-    const loadDiagram = async (id) => {
-      await db.diagrams
-        .get(id)
-        .then((diagram) => {
-          if (diagram) {
-            if (diagram.database) {
-              setDatabase(diagram.database);
-            } else {
-              setDatabase(DB.GENERIC);
-            }
-            setId(diagram.id);
-            setGistId(diagram.gistId);
-            setLoadedFromGistId(diagram.loadedFromGistId);
-            setTitle(diagram.name);
-            setTables(diagram.tables);
-            setRelationships(diagram.references);
-            setAreas(diagram.areas);
-            setNotes(diagram.notes);
-            setTasks(diagram.todos ?? []);
-            setTransform({
-              pan: diagram.pan,
-              zoom: diagram.zoom,
-            });
-            setUndoStack([]);
-            setRedoStack([]);
-            if (databases[database].hasTypes) {
-              setTypes(diagram.types ?? []);
-            }
-            if (databases[database].hasEnums) {
-              setEnums(diagram.enums ?? []);
-            }
-            window.name = `d ${diagram.id}`;
-          } else {
-            window.name = "";
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-        });
-    };
-
-    const loadTemplate = async (id) => {
-      await db.templates
-        .get(id)
-        .then((diagram) => {
-          if (diagram) {
-            if (diagram.database) {
-              setDatabase(diagram.database);
-            } else {
-              setDatabase(DB.GENERIC);
-            }
-            setId(diagram.id);
-            setTitle(diagram.title);
-            setTables(diagram.tables);
-            setRelationships(diagram.relationships);
-            setAreas(diagram.subjectAreas);
-            setTasks(diagram.todos ?? []);
-            setNotes(diagram.notes);
-            setTransform({
-              zoom: 1,
-              pan: { x: 0, y: 0 },
-            });
-            setUndoStack([]);
-            setRedoStack([]);
-            if (databases[database].hasTypes) {
-              setTypes(diagram.types ?? []);
-            }
-            if (databases[database].hasEnums) {
-              setEnums(diagram.enums ?? []);
-            }
-          } else {
-            if (selectedDb === "") setShowSelectDbModal(true);
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-          if (selectedDb === "") setShowSelectDbModal(true);
-        });
-    };
-
-    const loadFromGist = async (shareId) => {
+    const id = searchParams.get("id");
+    if (id) {
       try {
-        const res = await get(shareId);
-        const diagramSrc = res.data.files["share.json"].content;
-        const d = JSON.parse(diagramSrc);
-        setGistId(shareId);
+        const diagram = await getDiagram(id);
+        const content = JSON.parse(diagram.content);
+        setDiagramId(diagram.id);
+        setTitle(diagram.name);
+        setDatabase(diagram.database || DB.GENERIC);
+        setTables(content.tables || []);
+        setRelationships(content.relationships || []);
+        setNotes(content.notes || []);
+        setAreas(content.areas || []);
+        setTasks(content.tasks || []);
+        setTransform(content.transform || { pan: { x: 0, y: 0 }, zoom: 1 });
+        setTypes(content.types || []);
+        setEnums(content.enums || []);
         setUndoStack([]);
         setRedoStack([]);
-        setLoadedFromGistId(shareId);
-        setDatabase(d.database);
-        setTitle(d.title);
-        setTables(d.tables);
-        setRelationships(d.relationships);
-        setNotes(d.notes);
-        setAreas(d.subjectAreas);
-        setTransform(d.transform);
-        if (databases[d.database].hasTypes) {
-          setTypes(d.types ?? []);
-        }
-        if (databases[d.database].hasEnums) {
-          setEnums(d.enums ?? []);
-        }
-      } catch (e) {
-        console.log(e);
+      } catch (error) {
+        console.error("Failed to load diagram:", error);
         setSaveState(State.FAILED_TO_LOAD);
+        // Optionally, redirect to a new diagram or show an error message
+        setSearchParams({});
       }
-    };
-
-    const shareId = searchParams.get("shareId");
-    if (shareId) {
-      const existingDiagram = await db.diagrams.get({
-        loadedFromGistId: shareId,
-      });
-
-      if (existingDiagram) {
-        window.name = "d " + existingDiagram.id;
-        setId(existingDiagram.id);
-      } else {
-        window.name = "";
-        setId(0);
-      }
-      await loadFromGist(shareId);
-      return;
-    }
-
-    if (window.name === "") {
-      await loadLatestDiagram();
     } else {
-      const name = window.name.split(" ");
-      const op = name[0];
-      const id = parseInt(name[1]);
-      switch (op) {
-        case "d": {
-          await loadDiagram(id);
-          break;
-        }
-        case "t":
-        case "lt": {
-          await loadTemplate(id);
-          break;
-        }
-        default:
-          break;
+      // No ID in URL, so it's a new diagram
+      console.log("New diagram, database:", database);
+      if (database === "") {
+        console.log("Setting showSelectDbModal to true");
+        setShowSelectDbModal(true);
       }
     }
   }, [
-    setTransform,
-    setRedoStack,
-    setUndoStack,
-    setRelationships,
-    setTables,
-    setAreas,
-    setNotes,
-    setTypes,
-    setTasks,
-    setDatabase,
-    database,
-    setEnums,
-    selectedDb,
-    setSaveState,
     searchParams,
+    setDiagramId,
+    setTitle,
+    setDatabase,
+    setTables,
+    setRelationships,
+    setNotes,
+    setAreas,
+    setTasks,
+    setTransform,
+    setTypes,
+    setEnums,
+    setUndoStack,
+    setRedoStack,
+    setSaveState,
+    database,
+    setSearchParams,
   ]);
 
   useEffect(() => {
@@ -393,26 +192,26 @@ export default function WorkSpace() {
     tasks?.length,
     transform.zoom,
     title,
-    gistId,
     setSaveState,
   ]);
 
   useEffect(() => {
-    save();
+    if (saveState === State.SAVING) {
+      save();
+    }
   }, [saveState, save]);
 
   useEffect(() => {
     document.title = "Editor | drawDB";
-
     load();
   }, [load]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden theme">
-      <IdContext.Provider value={{ gistId, setGistId }}>
+      <IdContext.Provider value={{ diagramId, setDiagramId }}>
         <ControlPanel
-          diagramId={id}
-          setDiagramId={setId}
+          diagramId={diagramId}
+          setDiagramId={setDiagramId}
           title={title}
           setTitle={setTitle}
           lastSaved={lastSaved}
@@ -425,8 +224,6 @@ export default function WorkSpace() {
         onPointerLeave={(e) => e.isPrimary && setResize(false)}
         onPointerMove={(e) => e.isPrimary && handleResize(e)}
         onPointerDown={(e) => {
-          // Required for onPointerLeave to trigger when a touch pointer leaves
-          // https://stackoverflow.com/a/70976017/1137077
           e.target.releasePointerCapture(e.pointerId);
         }}
         style={isRtl(i18n.language) ? { direction: "rtl" } : {}}
@@ -454,6 +251,7 @@ export default function WorkSpace() {
         okText={t("confirm")}
         visible={showSelectDbModal}
         onOk={() => {
+          console.log("Modal OK clicked, selectedDb:", selectedDb);
           if (selectedDb === "") return;
           setDatabase(selectedDb);
           setShowSelectDbModal(false);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import SimpleCanvas from "../components/SimpleCanvas";
 import Navbar from "../components/Navbar";
 import { diagram } from "../data/heroDiagram";
@@ -18,6 +18,7 @@ import axios from "axios";
 import { languages } from "../i18n/i18n";
 import { Tweet } from "react-tweet";
 import { socials } from "../data/socials";
+import { useAuth } from "../context/AuthContext";
 
 function shortenNumber(number) {
   if (number < 1000) return number;
@@ -28,8 +29,16 @@ function shortenNumber(number) {
 
 export default function LandingPage() {
   const [stats, setStats] = useState({ stars: 18000, forks: 1200 });
+  const { isAuthenticated, loading } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
+    // If user is already authenticated, redirect to dashboard
+    if (!loading && isAuthenticated) {
+      navigate('/dashboard');
+      return;
+    }
+
     const fetchStats = async () => {
       await axios
         .get("https://api.github-star-counter.workers.dev/user/drawdb-io")
@@ -41,7 +50,7 @@ export default function LandingPage() {
       "drawDB | Online database diagram editor and SQL generator";
 
     fetchStats();
-  }, []);
+  }, [isAuthenticated, loading, navigate]);
 
   return (
     <div>

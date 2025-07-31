@@ -58,7 +58,7 @@ export default function LayoutDropdown() {
               if (fullscreen) {
                 exitFullscreen();
               } else {
-                enterFullscreen();
+                enterFullscreen(document.documentElement);
               }
             }}
           >

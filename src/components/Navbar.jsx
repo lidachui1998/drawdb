@@ -4,9 +4,11 @@ import logo from "../assets/logo_light_160.png";
 import { SideSheet } from "@douyinfe/semi-ui";
 import { IconMenu } from "@douyinfe/semi-icons";
 import { socials } from "../data/socials";
+import { useAuth } from "../context/AuthContext";
 
 export default function Navbar() {
   const [openMenu, setOpenMenu] = useState(false);
+  const { isAuthenticated, user, logout } = useAuth();
 
   return (
     <>
@@ -46,6 +48,24 @@ export default function Navbar() {
             </Link>
           </div>
           <div className="md:hidden block space-x-3 ms-12">
+            {isAuthenticated ? (
+              <>
+                <span className="text-lg font-semibold">{user.email}</span>
+                <button
+                  onClick={logout}
+                  className="text-lg font-semibold hover:text-sky-800 transition-colors duration-300"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <Link
+                to="/login"
+                className="text-lg font-semibold hover:text-sky-800 transition-colors duration-300"
+              >
+                Login
+              </Link>
+            )}
             <a
               title="Jump to Github"
               className="px-2 py-2 hover:opacity-60 transition-all duration-300 rounded-full text-2xl"
@@ -127,3 +147,4 @@ export default function Navbar() {
     </>
   );
 }
+

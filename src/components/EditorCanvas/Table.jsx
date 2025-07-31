@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import {
   Tab,
   ObjectType,
@@ -26,6 +26,9 @@ import { getTableHeight } from "../../utils/utils";
 
 export default function Table(props) {
   const [hoveredField, setHoveredField] = useState(null);
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const tableRef = useRef(null);
   const { database } = useDiagram();
   const {
     tableData,
@@ -51,6 +54,56 @@ export default function Table(props) {
   );
 
   const height = getTableHeight(tableData);
+
+  // 获取表格的当前尺寸
+  const tableWidth = tableData.width || settings.tableWidth;
+  const tableHeight = tableData.height || height;
+
+  // 调整大小开始
+  const handleResizeStart = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsResizing(true);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: tableWidth,
+      height: tableHeight,
+    });
+  };
+
+  // 调整大小过程中
+  const handleResizeMove = (e) => {
+    if (!isResizing) return;
+    
+    const deltaX = e.clientX - resizeStart.x;
+    const deltaY = e.clientY - resizeStart.y;
+    
+    const newWidth = Math.max(180, resizeStart.width + deltaX); // 最小宽度180
+    const newHeight = Math.max(height, resizeStart.height + deltaY); // 最小高度为原始计算高度
+    
+    updateTable(tableData.id, {
+      width: newWidth,
+      height: newHeight,
+    });
+  };
+
+  // 调整大小结束
+  const handleResizeEnd = () => {
+    setIsResizing(false);
+  };
+
+  // 监听全局鼠标事件
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleResizeMove);
+      document.addEventListener('mouseup', handleResizeEnd);
+      return () => {
+        document.removeEventListener('mousemove', handleResizeMove);
+        document.removeEventListener('mouseup', handleResizeEnd);
+      };
+    }
+  }, [isResizing, resizeStart]);
 
   const isSelected = useMemo(() => {
     return (
@@ -98,19 +151,20 @@ export default function Table(props) {
         key={tableData.id}
         x={tableData.x}
         y={tableData.y}
-        width={settings.tableWidth}
-        height={height}
+        width={tableWidth}
+        height={tableHeight}
         className="group drop-shadow-lg rounded-md cursor-move"
         onPointerDown={onPointerDown}
       >
         <div
+          ref={tableRef}
           onDoubleClick={openEditor}
-          className={`border-2 hover:border-dashed hover:border-blue-500
-               select-none rounded-lg w-full ${
+          className={`border-2 hover:border-dashed hover:border-blue-500 transition-all duration-300 ease-in-out
+               select-none rounded-lg w-full h-full shadow-lg hover:shadow-2xl backdrop-blur-sm relative ${
                  settings.mode === "light"
-                   ? "bg-zinc-100 text-zinc-800"
-                   : "bg-zinc-800 text-zinc-200"
-               } ${isSelected ? "border-solid border-blue-500" : borderColor}`}
+                   ? "bg-white text-zinc-800 border-zinc-200"
+                   : "bg-zinc-800 text-zinc-200 border-zinc-600"
+               } ${isSelected ? "border-solid border-blue-500 shadow-blue-200 ring-2 ring-blue-400 ring-opacity-50" : ""}`}
           style={{ direction: "ltr" }}
         >
           <div
@@ -118,14 +172,23 @@ export default function Table(props) {
             style={{ backgroundColor: tableData.color }}
           />
           <div
-            className={`overflow-hidden font-bold h-[40px] flex justify-between items-center border-b border-gray-400 ${
-              settings.mode === "light" ? "bg-zinc-200" : "bg-zinc-900"
+            className={`overflow-hidden font-bold h-[40px] flex justify-between items-center border-b ${
+              settings.mode === "light" 
+                ? "bg-gradient-to-r from-zinc-50 to-zinc-100 border-zinc-300 text-gray-800" 
+                : "bg-gradient-to-r from-zinc-900 to-zinc-800 border-zinc-600 text-zinc-100"
             }`}
           >
-            <div className="px-3 overflow-hidden text-ellipsis whitespace-nowrap">
-              {tableData.name}
+            <div className="px-3 flex items-center gap-2 flex-1 min-w-0 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400">
+              <div
+                className="w-3 h-3 rounded-full shadow-sm shrink-0"
+                style={{ backgroundColor: tableData.color }}
+              ></div>
+              <span className="tracking-wide font-bold whitespace-nowrap pr-2">{tableData.name}</span>
+              {tableData.comment && (
+                <i className="fa-solid fa-comment text-blue-500 text-xs opacity-70 shrink-0"></i>
+              )}
             </div>
-            <div className="hidden group-hover:block">
+            <div className="hidden group-hover:block shrink-0">
               <div className="flex justify-end items-center mx-2 space-x-1.5">
                 <Button
                   icon={tableData.locked ? <IconLock /> : <IconUnlock />}
@@ -149,48 +212,54 @@ export default function Table(props) {
                   key={tableData.id}
                   content={
                     <div className="popover-theme">
-                      <div className="mb-2">
-                        <strong>{t("comment")}:</strong>{" "}
-                        {tableData.comment === "" ? (
-                          t("not_set")
-                        ) : (
-                          <div>{tableData.comment}</div>
-                        )}
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <i className="fa-solid fa-comment text-blue-500"></i>
+                        <strong className="text-sm">{t("comment")}:</strong>
                       </div>
-                      <div>
-                        <strong
-                          className={`${
-                            tableData.indices.length === 0 ? "" : "block"
-                          }`}
-                        >
-                          {t("indices")}:
-                        </strong>{" "}
-                        {tableData.indices.length === 0 ? (
-                          t("not_set")
-                        ) : (
-                          <div>
-                            {tableData.indices.map((index, k) => (
-                              <div
-                                key={k}
-                                className={`flex items-center my-1 px-2 py-1 rounded ${
-                                  settings.mode === "light"
-                                    ? "bg-gray-100"
-                                    : "bg-zinc-800"
-                                }`}
-                              >
-                                <i className="fa-solid fa-thumbtack me-2 mt-1 text-slate-500"></i>
-                                <div>
-                                  {index.fields.map((f) => (
-                                    <Tag color="blue" key={f} className="me-1">
-                                      {f}
-                                    </Tag>
-                                  ))}
-                                </div>
+                      {tableData.comment === "" ? (
+                        <div className="text-sm text-gray-500 italic">{t("not_set")}</div>
+                      ) : (
+                        <div className={`text-sm p-2 rounded-md ${
+                          settings.mode === "light" 
+                            ? "bg-gray-50 border border-gray-200" 
+                            : "bg-zinc-700 border border-zinc-600"
+                        }`}>
+                          "{tableData.comment}"
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <i className="fa-solid fa-list text-green-500"></i>
+                        <strong className="text-sm">{t("indices")}:</strong>
+                      </div>
+                      {tableData.indices.length === 0 ? (
+                        <div className="text-sm text-gray-500 italic">{t("not_set")}</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {tableData.indices.map((index, k) => (
+                            <div
+                              key={k}
+                              className={`flex items-center gap-2 p-2 rounded-md ${
+                                settings.mode === "light"
+                                  ? "bg-gray-50 border border-gray-200"
+                                  : "bg-zinc-700 border border-zinc-600"
+                              }`}
+                            >
+                              <i className="fa-solid fa-thumbtack text-slate-500"></i>
+                              <div className="flex flex-wrap gap-1">
+                                {index.fields.map((f) => (
+                                  <Tag color="blue" key={f} size="small">
+                                    {f}
+                                  </Tag>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                       <Button
                         icon={<IconDeleteStroked />}
                         type="danger"
@@ -220,62 +289,113 @@ export default function Table(props) {
               </div>
             </div>
           </div>
-          {tableData.fields.map((e, i) => {
+          <div 
+            className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400"
+            style={{ 
+              maxHeight: `${tableHeight - 50}px`, // 减去头部高度
+              minHeight: `${Math.max(0, tableHeight - 50)}px`
+            }}
+          >
+            {tableData.fields.map((e, i) => {
             return settings.showFieldSummary ? (
-              <Popover
-                key={i}
-                content={
-                  <div className="popover-theme">
-                    <div
-                      className="flex justify-between items-center pb-2"
-                      style={{ direction: "ltr" }}
-                    >
-                      <p className="me-4 font-bold">{e.name}</p>
-                      <p
-                        className={
-                          "ms-4 font-mono " + dbToTypes[database][e.type].color
-                        }
+                <Popover
+                  key={i}
+                  content={
+                    <div className="popover-theme">
+                      <div
+                        className="flex justify-between items-center pb-3 border-b border-gray-200"
+                        style={{ direction: "ltr" }}
                       >
-                        {e.type +
-                          ((dbToTypes[database][e.type].isSized ||
-                            dbToTypes[database][e.type].hasPrecision) &&
-                          e.size &&
-                          e.size !== ""
-                            ? "(" + e.size + ")"
-                            : "")}
-                      </p>
+                        <div className="flex items-center gap-2">
+                          <i className="fa-solid fa-database text-blue-500"></i>
+                          <p className="font-bold text-lg">{e.name}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={
+                              "font-mono text-sm px-2 py-1 rounded-md " + 
+                              dbToTypes[database][e.type].color +
+                              (settings.mode === "light" 
+                                ? " bg-gray-100" 
+                                : " bg-zinc-700")
+                            }
+                          >
+                            {e.type +
+                              ((dbToTypes[database][e.type].isSized ||
+                                dbToTypes[database][e.type].hasPrecision) &&
+                              e.size &&
+                              e.size !== ""
+                                ? "(" + e.size + ")"
+                                : "")}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="pt-3 space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          {e.primary && (
+                            <Tag color="blue" size="small" className="flex items-center gap-1">
+                              <i className="fa-solid fa-key text-xs"></i>
+                              {t("primary")}
+                            </Tag>
+                          )}
+                          {e.unique && (
+                            <Tag color="amber" size="small" className="flex items-center gap-1">
+                              <i className="fa-solid fa-fingerprint text-xs"></i>
+                              {t("unique")}
+                            </Tag>
+                          )}
+                          {e.notNull && (
+                            <Tag color="purple" size="small" className="flex items-center gap-1">
+                              <i className="fa-solid fa-exclamation text-xs"></i>
+                              {t("not_null")}
+                            </Tag>
+                          )}
+                          {e.increment && (
+                            <Tag color="green" size="small" className="flex items-center gap-1">
+                              <i className="fa-solid fa-arrow-up text-xs"></i>
+                              {t("autoincrement")}
+                            </Tag>
+                          )}
+                        </div>
+                        <div className={`p-2 rounded-md ${
+                          settings.mode === "light" 
+                            ? "bg-gray-50" 
+                            : "bg-zinc-700"
+                        }`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <i className="fa-solid fa-cog text-gray-500"></i>
+                            <strong className="text-sm">{t("default_value")}:</strong>
+                          </div>
+                          <div className="text-sm">
+                            {e.default === "" ? (
+                              <span className="italic text-gray-500">{t("not_set")}</span>
+                            ) : (
+                              <code className="bg-gray-200 dark:bg-zinc-600 px-1 py-0.5 rounded text-xs">
+                                {e.default}
+                              </code>
+                            )}
+                          </div>
+                        </div>
+                        <div className={`p-2 rounded-md ${
+                          settings.mode === "light" 
+                            ? "bg-gray-50" 
+                            : "bg-zinc-700"
+                        }`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <i className="fa-solid fa-comment text-gray-500"></i>
+                            <strong className="text-sm">{t("comment")}:</strong>
+                          </div>
+                          <div className="text-sm">
+                            {e.comment === "" ? (
+                              <span className="italic text-gray-500">{t("not_set")}</span>
+                            ) : (
+                              <div className="italic">"{e.comment}"</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <hr />
-                    {e.primary && (
-                      <Tag color="blue" className="me-2 my-2">
-                        {t("primary")}
-                      </Tag>
-                    )}
-                    {e.unique && (
-                      <Tag color="amber" className="me-2 my-2">
-                        {t("unique")}
-                      </Tag>
-                    )}
-                    {e.notNull && (
-                      <Tag color="purple" className="me-2 my-2">
-                        {t("not_null")}
-                      </Tag>
-                    )}
-                    {e.increment && (
-                      <Tag color="green" className="me-2 my-2">
-                        {t("autoincrement")}
-                      </Tag>
-                    )}
-                    <p>
-                      <strong>{t("default_value")}: </strong>
-                      {e.default === "" ? t("not_set") : e.default}
-                    </p>
-                    <p>
-                      <strong>{t("comment")}: </strong>
-                      {e.comment === "" ? t("not_set") : e.comment}
-                    </p>
-                  </div>
-                }
+                  }
                 position="right"
                 showArrow
                 style={
@@ -290,6 +410,25 @@ export default function Table(props) {
               field(e, i)
             );
           })}
+          </div>
+          
+          {/* 调整大小手柄 */}
+          {(isSelected || isResizing) && (
+            <div
+              className={`absolute bottom-0 right-0 w-4 h-4 cursor-se-resize ${
+                settings.mode === "light" 
+                  ? "bg-blue-500 hover:bg-blue-600" 
+                  : "bg-blue-400 hover:bg-blue-500"
+              } rounded-tl-md opacity-70 hover:opacity-100 transition-all duration-200 flex items-center justify-center`}
+              onMouseDown={handleResizeStart}
+              style={{ 
+                borderTopLeftRadius: '6px',
+                borderBottomRightRadius: '6px'
+              }}
+            >
+              <div className="w-2 h-2 border-r border-b border-white opacity-60"></div>
+            </div>
+          )}
         </div>
       </foreignObject>
       <SideSheet
@@ -322,8 +461,14 @@ export default function Table(props) {
         className={`${
           index === tableData.fields.length - 1
             ? ""
-            : "border-b border-gray-400"
-        } group h-[36px] px-2 py-1 flex justify-between items-center gap-1 w-full overflow-hidden`}
+            : settings.mode === "light" 
+              ? "border-b border-zinc-200" 
+              : "border-b border-zinc-600"
+        } group h-[36px] px-3 py-1 flex justify-between items-center gap-2 w-full hover:bg-opacity-50 transition-colors duration-150 ${
+          settings.mode === "light" 
+            ? "hover:bg-blue-50" 
+            : "hover:bg-zinc-700"
+        }`}
         onPointerEnter={(e) => {
           if (!e.isPrimary) return;
 
@@ -351,10 +496,10 @@ export default function Table(props) {
         <div
           className={`${
             hoveredField === index ? "text-zinc-400" : ""
-          } flex items-center gap-2 overflow-hidden`}
+          } flex items-center gap-2 flex-1 min-w-0`}
         >
           <button
-            className="shrink-0 w-[10px] h-[10px] bg-[#2f68adcc] rounded-full"
+            className="shrink-0 w-[12px] h-[12px] bg-gradient-to-br from-blue-400 to-blue-600 rounded-full shadow-sm hover:shadow-md hover:scale-110 transition-all duration-200 border-2 border-white"
             onPointerDown={(e) => {
               if (!e.isPrimary) return;
 
@@ -380,11 +525,22 @@ export default function Table(props) {
               }));
             }}
           />
-          <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-            {fieldData.name}
-          </span>
+          <div className="flex-1 min-w-0 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400">
+            <div className="font-medium whitespace-nowrap pr-2">
+              {fieldData.name}
+            </div>
+            {fieldData.comment && (
+              <div className={`text-xs whitespace-nowrap pr-2 italic ${
+                settings.mode === "light" 
+                  ? "text-zinc-500" 
+                  : "text-zinc-400"
+              }`}>
+                "{fieldData.comment}"
+              </div>
+            )}
+          </div>
         </div>
-        <div className="text-zinc-400">
+        <div className="text-zinc-400 shrink-0">
           {hoveredField === index ? (
             <Button
               theme="solid"

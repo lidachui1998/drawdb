@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext, useState, useMemo, useCallback } from "react";
 import {
   IconCaretdown,
   IconChevronRight,
@@ -48,7 +48,8 @@ import jsPDF from "jspdf";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Validator } from "jsonschema";
 import { areaSchema, noteSchema, tableSchema } from "../../data/schemas";
-import { db } from "../../data/db";
+// import { db } from "../../data/db"; // 移除本地数据库
+import { getDiagrams, createDiagram, updateDiagram, deleteDiagram, shareDiagram } from "../../api/diagrams";
 import {
   useLayout,
   useSettings,
@@ -125,8 +126,10 @@ export default function ControlPanel({
   const { selectedElement, setSelectedElement } = useSelect();
   const { transform, setTransform } = useTransform();
   const { t, i18n } = useTranslation();
-  const { setGistId } = useContext(IdContext);
+  const { diagramId: contextDiagramId, setDiagramId: setContextDiagramId } = useContext(IdContext);
   const navigate = useNavigate();
+
+  const zoomPercentage = useMemo(() => Math.floor(transform.zoom * 100), [transform.zoom]);
 
   const invertLayout = (component) =>
     setLayout((prev) => ({ ...prev, [component]: !prev[component] }));
@@ -726,7 +729,7 @@ export default function ControlPanel({
   const saveDiagramAs = () => setModal(MODAL.SAVEAS);
   const fullscreen = useFullscreen();
 
-  const menu = {
+  const menu = useMemo(() => ({
     file: {
       new: {
         function: () => setModal(MODAL.NEW),
@@ -751,21 +754,8 @@ export default function ControlPanel({
       },
       save_as_template: {
         function: () => {
-          db.templates
-            .add({
-              title: title,
-              tables: tables,
-              database: database,
-              relationships: relationships,
-              notes: notes,
-              subjectAreas: areas,
-              custom: 1,
-              ...(databases[database].hasEnums && { enums: enums }),
-              ...(databases[database].hasTypes && { types: types }),
-            })
-            .then(() => {
-              Toast.success(t("template_saved"));
-            });
+          // TODO: 实现后端模板保存功能
+          Toast.info("模板保存功能暂未实现");
         },
       },
       rename: {
@@ -779,22 +769,24 @@ export default function ControlPanel({
           message: t("are_you_sure_delete_diagram"),
         },
         function: async () => {
-          await db.diagrams
-            .delete(diagramId)
-            .then(() => {
-              setDiagramId(0);
-              setTitle("Untitled diagram");
-              setTables([]);
-              setRelationships([]);
-              setAreas([]);
-              setNotes([]);
-              setTypes([]);
-              setEnums([]);
-              setUndoStack([]);
-              setRedoStack([]);
-              setGistId("");
-            })
-            .catch(() => Toast.error(t("oops_smth_went_wrong")));
+          try {
+            if (diagramId) {
+              await deleteDiagram(diagramId);
+            }
+            setDiagramId(0);
+            setTitle("Untitled diagram");
+            setTables([]);
+            setRelationships([]);
+            setAreas([]);
+            setNotes([]);
+            setTypes([]);
+            setEnums([]);
+            setUndoStack([]);
+            setRedoStack([]);
+            navigate("/dashboard");
+          } catch (error) {
+            Toast.error(t("oops_smth_went_wrong"));
+          }
         },
       },
       import_from: {
@@ -1145,8 +1137,7 @@ export default function ControlPanel({
       },
       exit: {
         function: () => {
-          save();
-          if (saveState === State.SAVED) navigate("/");
+          navigate("/");
         },
       },
     },
@@ -1179,15 +1170,7 @@ export default function ControlPanel({
             return;
           }
 
-          db.table("diagrams")
-            .delete(diagramId)
-            .catch((error) => {
-              Toast.error(t("oops_smth_went_wrong"));
-              console.error(
-                `Error deleting records with gistId '${diagramId}':`,
-                error,
-              );
-            });
+          // 删除功能已在delete_diagram中处理
         },
       },
       edit: {
@@ -1273,7 +1256,7 @@ export default function ControlPanel({
             sidebar: false,
             toolbar: false,
           }));
-          enterFullscreen();
+          enterFullscreen(document.documentElement);
         },
       },
       field_details: {
@@ -1381,7 +1364,7 @@ export default function ControlPanel({
         ) : (
           <i className="bi bi-toggle-off" />
         ),
-        function: fullscreen ? exitFullscreen : enterFullscreen,
+        function: fullscreen ? exitFullscreen : () => enterFullscreen(document.documentElement),
       },
     },
     settings: {
@@ -1412,14 +1395,11 @@ export default function ControlPanel({
           message: t("are_you_sure_flush_storage"),
         },
         function: async () => {
-          db.delete()
-            .then(() => {
-              Toast.success(t("storage_flushed"));
-              window.location.reload(false);
-            })
-            .catch(() => {
-              Toast.error(t("oops_smth_went_wrong"));
-            });
+          // 清除本地存储
+          localStorage.clear();
+          sessionStorage.clear();
+          Toast.success(t("storage_flushed"));
+          window.location.reload(false);
         },
       },
     },
@@ -1438,7 +1418,15 @@ export default function ControlPanel({
         function: () => window.open("/bug-report", "_blank"),
       },
     },
-  };
+  }), [
+    layout, settings, fullscreen, diagramId, title, tables, relationships, areas, notes, types, enums,
+    exportData, database, t, i18n.language, setModal, setDiagramId, setTitle, setTables, setRelationships,
+    setAreas, setNotes, setTypes, setEnums, setUndoStack, setRedoStack, navigate, setExportData,
+    setLayout, setSettings, toggleDBMLEditor, viewStrictMode, viewFieldSummary, resetView, viewGrid,
+    snapToGrid, zoomIn, zoomOut, enterFullscreen, exitFullscreen, setSidesheet, exportSavedData,
+    open, save, saveDiagramAs, fileImport, setImportFrom, setImportDb, undo, redo, edit, cut, copy,
+    paste, duplicate, del, copyAsImage
+  ]);
 
   useHotkeys("mod+i", fileImport, { preventDefault: true });
   useHotkeys("mod+z", undo, { preventDefault: true });
@@ -1554,12 +1542,15 @@ export default function ControlPanel({
                     label={t("zoom")}
                     placeholder={t("zoom")}
                     suffix={<div className="p-1">%</div>}
-                    onChange={(v) =>
-                      setTransform((prev) => ({
-                        ...prev,
-                        zoom: parseFloat(v) * 0.01,
-                      }))
-                    }
+                    onChange={(v) => {
+                      const zoomValue = parseFloat(v) * 0.01;
+                      if (!isNaN(zoomValue) && zoomValue > 0) {
+                        setTransform((prev) => ({
+                          ...prev,
+                          zoom: zoomValue,
+                        }));
+                      }
+                    }}
                   />
                 </Dropdown.Item>
               </Dropdown.Menu>
@@ -1568,7 +1559,7 @@ export default function ControlPanel({
           >
             <div className="py-1 px-2 hover-2 rounded-sm flex items-center justify-center">
               <div className="w-[40px]">
-                {Math.floor(transform.zoom * 100)}%
+                {zoomPercentage}%
               </div>
               <div>
                 <IconCaretdown />
@@ -1668,9 +1659,9 @@ export default function ControlPanel({
                 const body = document.body;
                 if (body.hasAttribute("theme-mode")) {
                   if (body.getAttribute("theme-mode") === "light") {
-                    menu["view"]["theme"].children[1].function();
+                    setSettings((prev) => ({ ...prev, mode: "dark" }));
                   } else {
-                    menu["view"]["theme"].children[0].function();
+                    setSettings((prev) => ({ ...prev, mode: "light" }));
                   }
                 }
               }}

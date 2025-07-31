@@ -9,7 +9,7 @@ export const DiagramContext = createContext(null);
 
 export default function DiagramContextProvider({ children }) {
   const { t } = useTranslation();
-  const [database, setDatabase] = useState(DB.GENERIC);
+  const [database, setDatabase] = useState("");
   const [tables, setTables] = useState([]);
   const [relationships, setRelationships] = useState([]);
   const { transform } = useTransform();
@@ -36,7 +36,7 @@ export default function DiagramContextProvider({ children }) {
           fields: [
             {
               name: "id",
-              type: database === DB.GENERIC ? "INT" : "INTEGER",
+              type: (database === DB.GENERIC || database === "") ? "INT" : "INTEGER",
               default: "",
               check: "",
               primary: true,
