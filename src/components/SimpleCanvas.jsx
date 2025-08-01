@@ -293,10 +293,7 @@ export default function SimpleCanvas({
           transformOrigin: "top left",
         }}
       >
-        {/* Debug info */}
-        <text x="10" y="30" fill="red" fontSize="14">
-          Debug: Tables={tables.length}, Relationships={relationships.length}
-        </text>
+
 
         {relationships.map((r, i) => (
           <Relationship key={i} relationship={r} tables={tables} />

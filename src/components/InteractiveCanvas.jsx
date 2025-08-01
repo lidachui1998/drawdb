@@ -500,10 +500,7 @@ export default function InteractiveCanvas({
             transformOrigin: "0 0",
           }}
         >
-          {/* 调试信息 */}
-          <text x="10" y="30" fill="red" fontSize="14">
-            Debug: Tables={tables.length}, Relationships={relationships.length}
-          </text>
+
           
           {/* 渲染关系线 */}
           {relationships.map((relationship) => (

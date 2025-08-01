@@ -21,7 +21,7 @@ export default function SharedDiagram() {
     try {
       setLoading(true);
       const data = await getPublicDiagram(shareId);
-      console.log('Loaded shared diagram data:', data);
+  
       setDiagram(data);
     } catch (error) {
       console.error("Failed to load shared diagram:", error);
@@ -105,13 +105,6 @@ export default function SharedDiagram() {
   // SQL导出功能
   const exportAsSQL = useCallback((dbType) => {
     try {
-      console.log('Exporting SQL with data:', {
-        tables: diagram.tables,
-        relationships: diagram.relationships,
-        types: diagram.types || [],
-        enums: diagram.enums || [],
-        title: diagram.title
-      });
       
       // Create a diagram object with the database type
       // Note: toMySQL expects 'references' not 'relationships'
@@ -271,9 +264,7 @@ export default function SharedDiagram() {
           className="w-full h-full bg-white relative"
           style={{ minHeight: '600px' }}
         >
-          <div style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(0,0,0,0.7)', color: 'white', padding: '5px', fontSize: '12px', zIndex: 1000 }}>
-            Debug: Tables={diagram.tables?.length || 0}, Relationships={diagram.relationships?.length || 0}
-          </div>
+
           <InteractiveCanvas
             diagram={diagram}
             tables={diagram.tables || []}
@@ -285,10 +276,6 @@ export default function SharedDiagram() {
               <div className="text-center">
                 <div className="text-lg mb-2">📊</div>
                 <div>此图表暂无内容或正在加载中...</div>
-                <div className="text-xs mt-2">
-                  Tables: {diagram.tables ? diagram.tables.length : 'undefined'} | 
-                  Relationships: {diagram.relationships ? diagram.relationships.length : 'undefined'}
-                </div>
               </div>
             </div>
           )}
