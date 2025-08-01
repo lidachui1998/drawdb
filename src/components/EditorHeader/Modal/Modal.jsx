@@ -344,7 +344,7 @@ export default function Modal({
       okText={getOkText(modal, t)}
       width={getModalWidth(modal)}
       style={isRtl(i18n.language) ? { direction: "rtl" } : {}}
-      footer={modal === MODAL.SHARE ? null : undefined}
+      {...(modal === MODAL.SHARE && { footer: null })}
     >
       {getModalBody()}
     </SemiUIModal>
