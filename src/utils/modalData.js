@@ -30,7 +30,7 @@ export const getModalWidth = (modal) => {
     case MODAL.OPEN:
       return 600;
     case MODAL.SHARE:
-      return 400;
+      return 600;
     case MODAL.NEW:
       return 500;
     case MODAL.IMPORT:
@@ -63,9 +63,9 @@ export const getOkText = (modal, t) => {
     case MODAL.IMPORT_SRC:
       return "导入";
     case MODAL.CODE:
-      return "关闭";
+      return t("export") || "导出";
     case MODAL.IMG:
-      return "关闭";
+      return t("export") || "导出";
     default:
       return "确定";
   }

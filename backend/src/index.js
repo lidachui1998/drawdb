@@ -299,7 +299,7 @@ router.post('/api/diagrams/:id/share', async (request, env) => {
   try {
     const ownerId = request.userId;
     const { id: diagramId } = request.params;
-    const { email: collaboratorEmail } = await request.json();
+    const { email: collaboratorEmail, role = 'editor' } = await request.json();
 
     // Verify ownership
     const diagram = await env.DB.prepare('SELECT id FROM diagrams WHERE id = ? AND owner_id = ?')
@@ -319,14 +319,222 @@ router.post('/api/diagrams/:id/share', async (request, env) => {
       return errorWithCors(404, 'Collaborator user not found.');
     }
 
-    // Add collaborator
+    // Add or update collaborator
     await env.DB.prepare(
-      'INSERT OR IGNORE INTO diagram_collaborators (diagram_id, user_id) VALUES (?, ?)'
+      'INSERT OR REPLACE INTO diagram_collaborators (diagram_id, user_id, role, invited_at, status) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)'
     )
-      .bind(diagramId, collaborator.id)
+      .bind(diagramId, collaborator.id, role, 'accepted')
       .run();
 
     return jsonWithCors({ success: true, message: 'Diagram shared successfully.' });
+  } catch (e) {
+    console.error(e);
+    return errorWithCors(500, 'Internal server error.');
+  }
+});
+
+// Generate public link for a diagram
+router.post('/api/diagrams/:id/public-link', async (request, env) => {
+  const authResult = await authMiddleware(request, env);
+  if (authResult) return authResult;
+
+  try {
+    const userId = request.userId;
+    const { id: diagramId } = request.params;
+
+    // Verify ownership or collaboration access
+    const diagram = await env.DB.prepare('SELECT id FROM diagrams WHERE id = ? AND owner_id = ?')
+      .bind(diagramId, userId)
+      .first();
+
+    // If not owner, check if user is a collaborator with edit access
+    if (!diagram) {
+      const collaboration = await env.DB.prepare(
+        'SELECT diagram_id FROM diagram_collaborators WHERE diagram_id = ? AND user_id = ? AND role = "editor" AND status = "accepted"'
+      )
+        .bind(diagramId, userId)
+        .first();
+
+      if (!collaboration) {
+        return errorWithCors(403, 'Only the owner or editors can generate public links for this diagram.');
+      }
+    }
+
+    // Generate a unique share ID
+    const shareId = uuidv4();
+
+    // Update diagram with public sharing info
+    await env.DB.prepare(
+      'UPDATE diagrams SET public_share_id = ?, public_share_enabled = TRUE WHERE id = ?'
+    )
+      .bind(shareId, diagramId)
+      .run();
+
+    return jsonWithCors({ 
+      success: true, 
+      shareId: shareId,
+      shareUrl: `/share/${shareId}`
+    });
+  } catch (e) {
+    console.error(e);
+    return errorWithCors(500, 'Internal server error.');
+  }
+});
+
+// Remove public link for a diagram
+router.delete('/api/diagrams/:id/public-link', async (request, env) => {
+  const authResult = await authMiddleware(request, env);
+  if (authResult) return authResult;
+
+  try {
+    const userId = request.userId;
+    const { id: diagramId } = request.params;
+
+    // Verify ownership or collaboration access
+    const diagram = await env.DB.prepare('SELECT id FROM diagrams WHERE id = ? AND owner_id = ?')
+      .bind(diagramId, userId)
+      .first();
+
+    // If not owner, check if user is a collaborator with edit access
+    if (!diagram) {
+      const collaboration = await env.DB.prepare(
+        'SELECT diagram_id FROM diagram_collaborators WHERE diagram_id = ? AND user_id = ? AND role = "editor" AND status = "accepted"'
+      )
+        .bind(diagramId, userId)
+        .first();
+
+      if (!collaboration) {
+        return errorWithCors(403, 'Only the owner or editors can remove public links for this diagram.');
+      }
+    }
+
+    // Remove public sharing
+    await env.DB.prepare(
+      'UPDATE diagrams SET public_share_id = NULL, public_share_enabled = FALSE WHERE id = ?'
+    )
+      .bind(diagramId)
+      .run();
+
+    return jsonWithCors({ success: true, message: 'Public link removed successfully.' });
+  } catch (e) {
+    console.error(e);
+    return errorWithCors(500, 'Internal server error.');
+  }
+});
+
+// Get public diagram by share ID (no authentication required)
+router.get('/api/diagrams/public/:shareId', async (request, env) => {
+  try {
+    const { shareId } = request.params;
+
+    const diagram = await env.DB.prepare(
+      'SELECT id, name, content, created_at, updated_at FROM diagrams WHERE public_share_id = ? AND public_share_enabled = TRUE'
+    )
+      .bind(shareId)
+      .first();
+
+    if (!diagram) {
+      return errorWithCors(404, 'Public diagram not found or sharing is disabled.');
+    }
+
+    // Parse content and add readonly flag
+    let content = {};
+    try {
+      content = JSON.parse(diagram.content || '{}');
+    } catch (e) {
+      console.error('Failed to parse diagram content:', e);
+    }
+
+    return jsonWithCors({
+      id: diagram.id,
+      title: diagram.name,
+      ...content,
+      isPublic: true,
+      readonly: true
+    });
+  } catch (e) {
+    console.error(e);
+    return errorWithCors(500, 'Internal server error.');
+  }
+});
+
+// Get collaborators for a diagram
+router.get('/api/diagrams/:id/collaborators', async (request, env) => {
+  const authResult = await authMiddleware(request, env);
+  if (authResult) return authResult;
+
+  try {
+    const userId = request.userId;
+    const { id: diagramId } = request.params;
+
+    // Verify ownership or collaboration access
+    const diagram = await env.DB.prepare('SELECT id FROM diagrams WHERE id = ? AND owner_id = ?')
+      .bind(diagramId, userId)
+      .first();
+
+    // If not owner, check if user is a collaborator with edit access
+    if (!diagram) {
+      const collaboration = await env.DB.prepare(
+        'SELECT diagram_id FROM diagram_collaborators WHERE diagram_id = ? AND user_id = ? AND role = "editor" AND status = "accepted"'
+      )
+        .bind(diagramId, userId)
+        .first();
+
+      if (!collaboration) {
+        return errorWithCors(403, 'Only the owner or editors can view collaborators for this diagram.');
+      }
+    }
+
+    // Get collaborators
+    const { results } = await env.DB.prepare(
+      `SELECT u.email, dc.role, dc.invited_at, dc.status 
+       FROM diagram_collaborators dc 
+       JOIN users u ON dc.user_id = u.id 
+       WHERE dc.diagram_id = ?`
+    )
+      .bind(diagramId)
+      .all();
+
+    return jsonWithCors(results);
+  } catch (e) {
+    console.error(e);
+    return errorWithCors(500, 'Internal server error.');
+  }
+});
+
+// Remove a collaborator from a diagram
+router.delete('/api/diagrams/:id/collaborators/:email', async (request, env) => {
+  const authResult = await authMiddleware(request, env);
+  if (authResult) return authResult;
+
+  try {
+    const userId = request.userId;
+    const { id: diagramId, email: collaboratorEmail } = request.params;
+
+    // Verify ownership
+    const diagram = await env.DB.prepare('SELECT id FROM diagrams WHERE id = ? AND owner_id = ?')
+      .bind(diagramId, userId)
+      .first();
+
+    if (!diagram) {
+      return errorWithCors(403, 'Only the owner can remove collaborators from this diagram.');
+    }
+
+    // Find the collaborator user
+    const collaborator = await env.DB.prepare('SELECT id FROM users WHERE email = ?')
+      .bind(collaboratorEmail)
+      .first();
+
+    if (!collaborator) {
+      return errorWithCors(404, 'Collaborator not found.');
+    }
+
+    // Remove collaborator
+    await env.DB.prepare('DELETE FROM diagram_collaborators WHERE diagram_id = ? AND user_id = ?')
+      .bind(diagramId, collaborator.id)
+      .run();
+
+    return jsonWithCors({ success: true, message: 'Collaborator removed successfully.' });
   } catch (e) {
     console.error(e);
     return errorWithCors(500, 'Internal server error.');

@@ -17,7 +17,8 @@ import {
   useUndoRedo,
   useTasks,
 } from "../../../hooks";
-import { saveAs } from "file-saver";
+// import { saveAs } from "file-saver"; // No longer needed
+import { dataURItoBlob } from "../../../utils/utils";
 import { Parser } from "node-sql-parser";
 import { Parser as OracleParser } from "oracle-sql-parser";
 import {
@@ -30,6 +31,7 @@ import Open from "./Open";
 import New from "./New";
 import ImportDiagram from "./ImportDiagram";
 import ImportSource from "./ImportSource";
+import ShareModal from "./ShareModal";
 import CodeEditor from "../../CodeEditor";
 import { useTranslation } from "react-i18next";
 import { importSQL } from "../../../utils/importSQL/index";
@@ -44,6 +46,21 @@ const extensionToLanguage = {
   json: "json",
 };
 
+const getMimeType = (extension) => {
+  switch (extension) {
+    case "json":
+      return "application/json";
+    case "sql":
+      return "text/sql";
+    case "dbml":
+      return "text/plain";
+    case "md":
+      return "text/markdown";
+    default:
+      return "text/plain";
+  }
+};
+
 export default function Modal({
   modal,
   setModal,
@@ -54,9 +71,6 @@ export default function Modal({
   setExportData,
   importDb,
   importFrom,
-  shareEmail,
-  setShareEmail,
-  handleShare,
 }) {
   const { t, i18n } = useTranslation();
   const { setTables, setRelationships, database, setDatabase } = useDiagram();
@@ -158,10 +172,94 @@ export default function Modal({
 
   const getModalOnOk = async () => {
     switch (modal) {
-      case MODAL.IMG:
-      case MODAL.CODE:
-        // ... (this logic remains the same)
+      case MODAL.IMG: {
+        console.log('Exporting image with data:', exportData);
+        
+        // Create a very simple filename for testing
+        const timestamp = Date.now();
+        const filename = `diagram_${timestamp}.${exportData.extension}`;
+        console.log('Simple filename:', filename);
+        
+        // Create a more reliable download method
+        const blob = dataURItoBlob(exportData.data);
+        console.log('Blob created:', blob);
+        
+        // Try multiple methods to ensure download works
+        console.log('Blob type:', blob.type);
+        console.log('Blob size:', blob.size);
+        
+        // Method 1: Use fetch to convert data URL to blob with explicit type
+        try {
+          const response = await fetch(exportData.data);
+          const fetchBlob = await response.blob();
+          
+          // Force the correct MIME type
+          const typedBlob = new Blob([fetchBlob], { 
+            type: exportData.extension === 'png' ? 'image/png' : 
+                  exportData.extension === 'jpeg' ? 'image/jpeg' : 
+                  exportData.extension === 'svg' ? 'image/svg+xml' : blob.type 
+          });
+          
+          const url = URL.createObjectURL(typedBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          
+          // Force download attribute
+          link.setAttribute('download', filename);
+          link.style.display = 'none';
+          
+          console.log('Final download link:', {
+            href: link.href,
+            download: link.download,
+            filename: filename
+          });
+          
+          // Trigger download
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          
+          // Clean up
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          
+        } catch (error) {
+          console.error('All methods failed:', error);
+        }
+        
+        setModal(MODAL.NONE);
         return;
+      }
+      case MODAL.CODE: {
+        // Create a very simple filename for testing
+        const timestamp = Date.now();
+        const filename = `code_${timestamp}.${exportData.extension}`;
+        console.log('Exporting code with simple filename:', filename);
+        
+        const blob = new Blob([exportData.data], {
+          type: "text/plain",
+        });
+        
+        // Create download link
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        
+        console.log('Code download link created:', link.download);
+        
+        // Trigger download
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+        
+        setModal(MODAL.NONE);
+        return;
+      }
       case MODAL.IMPORT:
         // ... (this logic remains the same)
         return;
@@ -186,7 +284,8 @@ export default function Modal({
         createNewDiagram(selectedTemplateId);
         return;
       case MODAL.SHARE:
-        await handleShare();
+        // Share modal handles its own actions
+        setModal(MODAL.NONE);
         return;
       default:
         setModal(MODAL.NONE);
@@ -206,24 +305,7 @@ export default function Modal({
           />
         );
       case MODAL.SHARE:
-        return (
-          <div className="p-4">
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t("collaborator_email")}
-              </label>
-              <Input
-                placeholder="输入协作者的邮箱地址"
-                value={shareEmail}
-                onChange={(v) => setShareEmail(v)}
-                autoFocus
-              />
-            </div>
-            <div className="text-sm text-gray-500">
-              输入邮箱地址后，该用户将能够查看和编辑此图表。
-            </div>
-          </div>
-        );
+        return <ShareModal setModal={setModal} />;
       case MODAL.RENAME:
         return <Rename title={uncontrolledTitle} setTitle={setUncontrolledTitle} />;
       case MODAL.SAVEAS:
@@ -257,11 +339,12 @@ export default function Modal({
     <SemiUIModal
       title={getModalTitle(modal, t)}
       visible={modal !== MODAL.NONE}
-      onOk={getModalOnOk}
+      onOk={modal === MODAL.SHARE ? undefined : getModalOnOk}
       onCancel={() => setModal(MODAL.NONE)}
       okText={getOkText(modal, t)}
       width={getModalWidth(modal)}
       style={isRtl(i18n.language) ? { direction: "rtl" } : {}}
+      footer={modal === MODAL.SHARE ? null : undefined}
     >
       {getModalBody()}
     </SemiUIModal>

@@ -8,7 +8,7 @@ import {
 } from "../data/constants";
 import { calcPath } from "../utils/calcPath";
 
-function Table({ table, grab }) {
+function Table({ table, grab, readonly = false }) {
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredField, setHoveredField] = useState(-1);
   const height =
@@ -23,8 +23,10 @@ function Table({ table, grab }) {
       y={table.y}
       width={tableWidth}
       height={height}
-      className="drop-shadow-lg rounded-md cursor-move"
+      className={`drop-shadow-lg rounded-md ${readonly ? 'cursor-default' : 'cursor-move'}`}
       onPointerDown={(e) => {
+        if (readonly) return;
+
         // Required for onPointerLeave to trigger when a touch pointer leaves
         // https://stackoverflow.com/a/70976017/1137077
         e.target.releasePointerCapture(e.pointerId);
@@ -37,9 +39,8 @@ function Table({ table, grab }) {
       onPointerLeave={(e) => e.isPrimary && setIsHovered(false)}
     >
       <div
-        className={`border-2 ${
-          isHovered ? "border-dashed border-blue-500" : "border-zinc-300"
-        } select-none rounded-lg w-full bg-zinc-100 text-zinc-800`}
+        className={`border-2 ${isHovered ? "border-dashed border-blue-500" : "border-zinc-300"
+          } select-none rounded-lg w-full bg-zinc-100 text-zinc-800`}
       >
         <div
           className={`h-[10px] w-full rounded-t-md`}
@@ -51,9 +52,8 @@ function Table({ table, grab }) {
         {table.fields.map((e, i) => (
           <div
             key={i}
-            className={`${
-              i === table.fields.length - 1 ? "" : "border-b border-gray-400"
-            } h-[36px] px-2 py-1 flex justify-between`}
+            className={`${i === table.fields.length - 1 ? "" : "border-b border-gray-400"
+              } h-[36px] px-2 py-1 flex justify-between`}
             onPointerEnter={(e) => e.isPrimary && setHoveredField(i)}
             onPointerLeave={(e) => e.isPrimary && setHoveredField(-1)}
             onPointerDown={(e) => {
@@ -108,6 +108,14 @@ function Relationship({ relationship, tables }) {
     setRefAquired(true);
   }, []);
 
+  // Find tables by ID instead of using array index
+  const startTable = tables.find(t => t.id === relationship.startTableId) || tables[relationship.startTableId];
+  const endTable = tables.find(t => t.id === relationship.endTableId) || tables[relationship.endTableId];
+
+  if (!startTable || !endTable) {
+    return null; // Don't render if tables not found
+  }
+
   if (refAquired) {
     const pathLength = pathRef.current.getTotalLength();
     const point1 = pathRef.current.getPointAtLength(length);
@@ -124,12 +132,12 @@ function Relationship({ relationship, tables }) {
           startFieldIndex: relationship.startFieldId,
           endFieldIndex: relationship.endFieldId,
           startTable: {
-            x: tables[relationship.startTableId].x,
-            y: tables[relationship.startTableId].y,
+            x: startTable.x,
+            y: startTable.y,
           },
           endTable: {
-            x: tables[relationship.endTableId].x,
-            y: tables[relationship.endTableId].y,
+            x: endTable.x,
+            y: endTable.y,
           },
         })}
         stroke="gray"
@@ -166,12 +174,61 @@ function Relationship({ relationship, tables }) {
   );
 }
 
-export default function SimpleCanvas({ diagram, zoom }) {
-  const [tables, setTables] = useState(diagram.tables);
+export default function SimpleCanvas({
+  diagram,
+  zoom = 1,
+  readonly = false,
+  tables: propTables,
+  relationships: propRelationships,
+  notes: propNotes,
+  areas: propAreas,
+  types: propTypes,
+  enums: propEnums,
+  database: propDatabase
+}) {
+  // Use props if provided, otherwise use diagram object
+  const initialTables = propTables || diagram?.tables || [];
+  const relationships = propRelationships || diagram?.relationships || [];
+
+  // Debug logging
+  console.log('SimpleCanvas props:', {
+    initialTables,
+    relationships,
+    diagram,
+    propTables,
+    propRelationships
+  });
+
+  const [tables, setTables] = useState(initialTables);
+
+  console.log('Tables to render:', tables);
+  console.log('Relationships to render:', relationships);
   const [dragging, setDragging] = useState(-1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
 
+  // 调整表格位置，确保在可视区域内
+  useEffect(() => {
+    if (initialTables.length > 0) {
+      const adjustedTables = initialTables.map((table, index) => {
+        // 如果表格位置是负数或者太小，重新定位
+        let x = table.x;
+        let y = table.y;
+        
+        if (x < 50 || y < 50) {
+          x = 100 + (index % 3) * 300; // 水平排列，每个表格间隔300px
+          y = 100 + Math.floor(index / 3) * 200; // 垂直排列，每行间隔200px
+        }
+        
+        return { ...table, x, y };
+      });
+      
+      console.log('Adjusted tables:', adjustedTables);
+      setTables(adjustedTables);
+    }
+  }, [initialTables]);
+
   const grabTable = (e, id) => {
+    if (readonly) return;
     setDragging(id);
     setOffset({
       x: e.clientX - tables[id].x,
@@ -180,28 +237,29 @@ export default function SimpleCanvas({ diagram, zoom }) {
   };
 
   const moveTable = (e) => {
-    if (dragging !== -1) {
-      const dx = e.clientX - offset.x;
-      const dy = e.clientY - offset.y;
-      setTables((prev) =>
-        prev.map((table, i) =>
-          i === dragging ? { ...table, x: dx, y: dy } : table,
-        ),
-      );
-    }
+    if (readonly || dragging === -1) return;
+    const dx = e.clientX - offset.x;
+    const dy = e.clientY - offset.y;
+    setTables((prev) =>
+      prev.map((table, i) =>
+        i === dragging ? { ...table, x: dx, y: dy } : table,
+      ),
+    );
   };
 
   const releaseTable = () => {
+    if (readonly) return;
     setDragging(-1);
     setOffset({ x: 0, y: 0 });
   };
 
   return (
     <svg
-      className="w-full h-full cursor-grab rounded-3xl"
+      className={`w-full h-full ${readonly ? 'cursor-default' : 'cursor-grab'} rounded-3xl`}
       onPointerUp={(e) => e.isPrimary && releaseTable()}
       onPointerMove={(e) => e.isPrimary && moveTable(e)}
       onPointerLeave={(e) => e.isPrimary && releaseTable()}
+      style={{ minHeight: '400px' }}
     >
       <defs>
         <pattern
@@ -235,11 +293,16 @@ export default function SimpleCanvas({ diagram, zoom }) {
           transformOrigin: "top left",
         }}
       >
-        {diagram.relationships.map((r, i) => (
+        {/* Debug info */}
+        <text x="10" y="30" fill="red" fontSize="14">
+          Debug: Tables={tables.length}, Relationships={relationships.length}
+        </text>
+
+        {relationships.map((r, i) => (
           <Relationship key={i} relationship={r} tables={tables} />
         ))}
         {tables.map((t, i) => (
-          <Table key={i} table={t} grab={(e) => grabTable(e, i)} />
+          <Table key={i} table={t} grab={(e) => grabTable(e, i)} readonly={readonly} />
         ))}
       </g>
     </svg>

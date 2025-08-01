@@ -1,4 +1,4 @@
-import { useContext, useState, useMemo, useCallback } from "react";
+import { useContext, useState, useMemo, useCallback, useEffect } from "react";
 import {
   IconCaretdown,
   IconChevronRight,
@@ -96,7 +96,7 @@ export default function ControlPanel({
   const [importDb, setImportDb] = useState("");
   const [exportData, setExportData] = useState({
     data: null,
-    filename: `${title}_${new Date().toISOString()}`,
+    filename: `${title}_${new Date().toISOString().replace(/[:.]/g, '-')}`,
     extension: "",
   });
   const [importFrom, setImportFrom] = useState(IMPORT_FROM.JSON);
@@ -726,7 +726,7 @@ export default function ControlPanel({
   };
   const save = () => setSaveState(State.SAVING);
   const open = () => setModal(MODAL.OPEN);
-  const saveDiagramAs = () => setModal(MODAL.SAVEAS);
+  const saveDiagramAs = useCallback(() => setModal(MODAL.SAVEAS));
   const fullscreen = useFullscreen();
 
   const menu = useMemo(() => ({
@@ -1418,15 +1418,7 @@ export default function ControlPanel({
         function: () => window.open("/bug-report", "_blank"),
       },
     },
-  }), [
-    layout, settings, fullscreen, diagramId, title, tables, relationships, areas, notes, types, enums,
-    exportData, database, t, i18n.language, setModal, setDiagramId, setTitle, setTables, setRelationships,
-    setAreas, setNotes, setTypes, setEnums, setUndoStack, setRedoStack, navigate, setExportData,
-    setLayout, setSettings, toggleDBMLEditor, viewStrictMode, viewFieldSummary, resetView, viewGrid,
-    snapToGrid, zoomIn, zoomOut, enterFullscreen, exitFullscreen, setSidesheet, exportSavedData,
-    open, save, saveDiagramAs, fileImport, setImportFrom, setImportDb, undo, redo, edit, cut, copy,
-    paste, duplicate, del, copyAsImage
-  ]);
+  }), [layout, settings, fullscreen, diagramId, title, tables, relationships, areas, notes, types, enums, exportData, database, t, setModal, setDiagramId, setTitle, setTables, setRelationships, setAreas, setNotes, setTypes, setEnums, setUndoStack, setRedoStack, navigate, setExportData, setLayout, setSettings, toggleDBMLEditor, viewStrictMode, viewFieldSummary, resetView, viewGrid, snapToGrid, zoomIn, zoomOut, setSidesheet, open, save, saveDiagramAs, fileImport, setImportFrom, setImportDb, undo, redo, edit, cut, copy, paste, duplicate, del, copyAsImage]);
 
   useHotkeys("mod+i", fileImport, { preventDefault: true });
   useHotkeys("mod+z", undo, { preventDefault: true });

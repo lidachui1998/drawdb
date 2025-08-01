@@ -9,6 +9,7 @@ import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./context/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import SharedDiagram from "./pages/SharedDiagram";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/editor" element={<ProtectedRoute><Editor /></ProtectedRoute>} />
+            <Route path="/share/:shareId" element={<SharedDiagram />} />
             <Route path="/bug-report" element={<BugReport />} />
             <Route path="/templates" element={<Templates />} />
             <Route path="*" element={<NotFound />} />
